@@ -156,23 +156,21 @@ function TFItem(id, name) {
 TFItem.prototype = new Item("_tf");
 TFItem.prototype.constructor = TFItem;
 
-TFItem.prototype.PushEffect = function(func, opts) {
-	this.effects.push({ func: func, opts: opts});
+TFItem.prototype.PushEffect = function(func, opts, odds) {
+	var group = new EffectGroup(func, opts, odds);
+	this.effects.push(group);
+	return group;
 }
 
 TF.UseItem = function(target, suppressUse) {
-	var changed = TF.Effect.Unchanged;
 	if(!suppressUse && this.useStr)
 		this.useStr(target);
-	for(var i = 0; i < this.effects.length; i++) {
-		var effect = this.effects[i];
-		if(effect.func) {
-			var ret = effect.func(target, effect.opts);
-			if(ret != TF.Effect.Unchanged)
-				changed = ret;
-		}
-	}
-	return {consume: true, changed: changed};
+	var itemOutcome = TF.Effect.Unchanged;
+	this.effects.forEach(function(effect){
+		var outcome = effect.tryApply(target);
+		if (outcome != TF.Effect.Unchanged) itemOutcome = outcome;
+	});
+	return {consume: true, changed: itemOutcome};
 }
 
 TF.UseItemDesc = function(target) {
@@ -180,6 +178,50 @@ TF.UseItemDesc = function(target) {
 	Text.Add("[name] chug[s] down a bottle of [item].", parse);
 	Text.NL();
 	Text.Flush();
+}
+
+function EffectGroup(func, opts, odds) {
+	this.stackedEffects = [];
+	if (odds) {
+		this.odds = odds;
+	} else if (opts && opts.odds){
+		this.odds = opts.odds;
+	} else {
+		this.odds = 1;
+	}
+	this.stackedEffects.push({ func: func, opts: opts });
+}
+
+EffectGroup.prototype.constructor = EffectGroup;
+
+EffectGroup.prototype.stackEffect = function(func, opts){
+	this.stackedEffects.push({ func: func, opts: opts });
+	return this;
+}
+
+EffectGroup.prototype.altEffect = function(func, opts, odds){
+	this.nextAltEffect = new EffectGroup(func, opts, odds);
+	return this.nextAltEffect;
+}
+
+EffectGroup.prototype.tryApply = function(target, rollResult){
+	var rollResult = rollResult ? rollResult : Math.random();
+	if(rollResult <= this.odds) {
+		var groupOutcome = TF.Effect.Unchanged;
+		this.stackedEffects.forEach(function(effect){
+			if (effect.func) {
+				var outcome = effect.func(target, effect.opts);
+				if (outcome != TF.Effect.Unchanged) groupOutcome = outcome;
+			}
+		});
+		console.log(groupOutcome)
+		return groupOutcome;
+	} else if (this.nextAltEffect) {
+		rollResult -= this.odds;
+		return this.nextAltEffect.tryApply(target, rollResult);
+	} else {
+		return TF.Effect.Unchanged;
+	}
 }
 
 TF.ItemEffects = {};
